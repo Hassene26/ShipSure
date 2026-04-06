@@ -266,8 +266,10 @@
             <p class="description">Input the tracking number. Once FedEx marks it as delivered, Flare Network automatically triggers the XRPL Escrow release.</p>
             
             <div class="data-row">
-                <label>Tracking Number</label>
-                <div class="value" id="trackingNumberDisplay">FEDEX123456</div>
+                <label>FedEx Tracking Number</label>
+                <input type="text" id="trackingInput" placeholder="Enter real FedEx tracking number"
+                    style="font-size: 1.1rem; font-weight: 500; background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); color: white; font-family: 'Space Grotesk', monospace; width: 100%; outline: none;"
+                />
             </div>
 
             <div class="data-row">
@@ -276,7 +278,7 @@
             </div>
 
             <button id="btnDeliver" class="seller-btn" onclick="verifyDelivery()" disabled>
-                Simulate FedEx Delivery <div class="loader" id="loaderDeliver"></div>
+                Verify Delivery via FedEx <div class="loader" id="loaderDeliver"></div>
             </button>
         </div>
     </div>
@@ -288,42 +290,47 @@
             "function verifyDelivery(bytes32 trackingHash, bool isDelivered, uint256 deliveryTime, bytes proof) external"
         ];
 
-        let metamaskCompleted = false;
-        
-        // Generate unique tracking number so we don't hit "already confirmed" contract errors on repeat tests
-        const trackingNumber = "FEDEX" + Math.floor(100000 + Math.random() * 900000);
-        document.getElementById("trackingNumberDisplay").innerText = trackingNumber;
-
         // Fetch status continuously
         const statusChecker = setInterval(async () => {
             try {
-                const res = await fetch('http://localhost:3000/api/status');
+                const res = await fetch('/api/status');
                 const data = await res.json();
-                
+
                 const statusEl = document.getElementById('systemStatus');
                 statusEl.innerText = data.status;
 
-                // Dynamic coloring
-                if (data.status.includes("Completed") || data.status.includes("Successfully") || metamaskCompleted) {
+                if (data.status.includes("Successfully")) {
                     statusEl.style.backgroundColor = 'rgba(32, 201, 151, 0.2)';
                     statusEl.style.color = '#20C997';
                     statusEl.style.borderColor = '#20C997';
-                    if (metamaskCompleted) statusEl.innerText = "Escrow Watcher Releasing Funds...";
-                } else if (data.status.includes("Locking") || data.status.includes("Awaiting") || data.status.includes("Flare")) {
+                } else if (data.status.includes("Error") || data.status.includes("not delivered")) {
+                    statusEl.style.backgroundColor = 'rgba(245, 64, 64, 0.2)';
+                    statusEl.style.color = '#F54040';
+                    statusEl.style.borderColor = '#F54040';
+                } else if (data.status.includes("Awaiting")) {
+                    statusEl.style.backgroundColor = 'rgba(32, 201, 151, 0.1)';
+                    statusEl.style.color = 'var(--accent)';
+                    statusEl.style.borderColor = 'rgba(32, 201, 151, 0.2)';
+                } else {
                     statusEl.style.backgroundColor = 'rgba(90, 64, 245, 0.2)';
                     statusEl.style.color = '#5A40F5';
                     statusEl.style.borderColor = '#5A40F5';
                 }
 
-                // Interaction state transitions
-                if(data.status.includes("Funds Locked") && !metamaskCompleted) {
+                if (data.status.includes("Funds Locked")) {
                     document.getElementById('btnDeliver').disabled = false;
-                    document.getElementById('btnLock').innerHTML = "XRPL Escrow Active ✓";
+                    document.getElementById('btnLock').innerHTML = "XRPL Escrow Active";
                     document.getElementById('btnLock').disabled = true;
                     document.getElementById('btnLock').style.background = "rgba(255,255,255,0.1)";
                     document.getElementById('btnLock').style.color = "#FFFFFF";
                 }
 
+                if (data.status.includes("Successfully")) {
+                    document.getElementById('btnDeliver').innerText = "Escrow Released";
+                    document.getElementById('btnDeliver').disabled = true;
+                    document.getElementById('btnDeliver').style.background = "var(--accent)";
+                    document.getElementById('btnDeliver').style.color = "var(--bg-dark)";
+                }
             } catch (e) {
                 console.error("API Offline. Start server.ts");
             }
@@ -332,88 +339,111 @@
         async function lockFunds() {
             document.getElementById('loaderLock').style.display = 'inline-block';
             document.getElementById('btnLock').disabled = true;
-            await fetch('http://localhost:3000/api/lock', { method: 'POST' });
+            await fetch('/api/lock', { method: 'POST' });
         }
 
         async function verifyDelivery() {
+            const trackingNumber = document.getElementById('trackingInput').value.trim();
+            if (!trackingNumber) {
+                alert("Please enter a FedEx tracking number.");
+                return;
+            }
+
             if (!window.ethereum) {
-                alert("MetaMask is required to sign this transaction in the browser!");
+                alert("MetaMask is required to sign the Flare transaction.");
                 return;
             }
 
             const btn = document.getElementById('btnDeliver');
-            btn.innerHTML = 'Connecting App... <div class="loader" id="loaderDeliver" style="display:inline-block"></div>';
+            btn.innerHTML = 'Checking FedEx... <div class="loader" id="loaderDeliver" style="display:inline-block"></div>';
             btn.disabled = true;
 
             try {
-                // Force MetaMask to switch to Flare Coston2 Network (Chain ID 114 / 0x72)
+                // Step 1: Ask backend to check FedEx API
+                const fedexRes = await fetch('/api/check-delivery', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ trackingNumber }),
+                });
+                const fedexData = await fedexRes.json();
+
+                if (!fedexData.success) {
+                    alert("FedEx API error: " + (fedexData.error || "Unknown error"));
+                    btn.innerText = "Verify Delivery via FedEx";
+                    btn.disabled = false;
+                    return;
+                }
+
+                if (!fedexData.isDelivered) {
+                    alert("Package not delivered yet.\nFedEx status: " + fedexData.statusDetail + "\n\nTry again when the package is delivered.");
+                    btn.innerText = "Verify Delivery via FedEx";
+                    btn.disabled = false;
+                    return;
+                }
+
+                // Step 2: FedEx confirms delivery — now sign on Flare via MetaMask
+                btn.innerHTML = 'FedEx confirmed! Connecting MetaMask... <div class="loader" style="display:inline-block"></div>';
+
+                // Switch to Flare Coston2
                 try {
                     await window.ethereum.request({
                         method: 'wallet_switchEthereumChain',
                         params: [{ chainId: '0x72' }],
                     });
                 } catch (switchError) {
-                    // This error code indicates that the chain has not been added to MetaMask.
                     if (switchError.code === 4902) {
-                        try {
-                            await window.ethereum.request({
-                                method: 'wallet_addEthereumChain',
-                                params: [
-                                    {
-                                        chainId: '0x72',
-                                        chainName: 'Coston2 Testnet',
-                                        nativeCurrency: { name: 'Coston2 Flare', symbol: 'C2FLR', decimals: 18 },
-                                        rpcUrls: ['https://coston2-api.flare.network/ext/bc/C/rpc'],
-                                        blockExplorerUrls: ['https://coston2-explorer.flare.network/']
-                                    }
-                                ],
-                            });
-                        } catch (addError) {
-                            throw new Error("Failed to add Coston2 network to MetaMask");
-                        }
+                        await window.ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: '0x72',
+                                chainName: 'Coston2 Testnet',
+                                nativeCurrency: { name: 'Coston2 Flare', symbol: 'C2FLR', decimals: 18 },
+                                rpcUrls: ['https://coston2-api.flare.network/ext/bc/C/rpc'],
+                                blockExplorerUrls: ['https://coston2-explorer.flare.network/']
+                            }],
+                        });
                     } else {
                         throw switchError;
                     }
                 }
 
-                // Initialize Ethers BrowserProvider
                 const provider = new ethers.BrowserProvider(window.ethereum);
                 await provider.send("eth_requestAccounts", []);
                 const signer = await provider.getSigner();
-                
                 const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
                 const trackingHash = ethers.keccak256(ethers.toUtf8Bytes(trackingNumber));
 
-                btn.innerHTML = 'Sign Request(1/2) <div class="loader" id="loaderDeliver" style="display:inline-block"></div>';
-                
+                // Step 3: Request delivery status on-chain
+                btn.innerHTML = 'Sign tx 1/2: Request... <div class="loader" style="display:inline-block"></div>';
                 try {
                     const tx1 = await contract.requestDeliveryStatus(trackingNumber, await signer.getAddress());
                     await tx1.wait();
-                } catch(e) {
-                    console.log("Delivery likely already requested, progressing...");
+                } catch (e) {
+                    console.log("Delivery likely already requested, proceeding...");
                 }
 
-                btn.innerHTML = 'Sign Verification(2/2) <div class="loader" id="loaderDeliver" style="display:inline-block"></div>';
-                const tx2 = await contract.verifyDelivery(trackingHash, true, Math.floor(Date.now() / 1000), "0x");
-                await tx2.wait();
+                // Step 4: Verify delivery on-chain with real FedEx data
+                btn.innerHTML = 'Sign tx 2/2: Verify... <div class="loader" style="display:inline-block"></div>';
+                const deliveryTime = fedexData.deliveryTime || Math.floor(Date.now() / 1000);
+                const tx2 = await contract.verifyDelivery(trackingHash, true, deliveryTime, "0x");
+                const receipt = await tx2.wait();
 
-                btn.innerText = "MetaMask Success! Release Pending...";
+                // Step 5: Notify backend that on-chain verification is done
+                await fetch('/api/delivery-confirmed', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ txHash: receipt.hash }),
+                });
+
+                btn.innerText = "Verified on Flare! Releasing escrow...";
                 btn.style.background = "var(--accent)";
                 btn.style.color = "var(--bg-dark)";
-                metamaskCompleted = true; 
-
-                // Visually simulate the Watcher catching up and completing the flow
-                setTimeout(() => {
-                    clearInterval(statusChecker);
-                    const statusEl = document.getElementById('systemStatus');
-                    statusEl.innerText = "🟢 XRPL Escrow Successfully Released! 🎉";
-                    btn.innerText = "Escrow Sweep Complete!";
-                }, 4000);
+                // Watcher will catch the DeliveryConfirmed event and release the XRPL escrow
 
             } catch (error) {
                 console.error(error);
                 alert("Transaction failed or rejected. Ensure you have C2FLR testnet gas!");
-                btn.innerText = "Simulate FedEx Delivery";
+                btn.innerText = "Verify Delivery via FedEx";
                 btn.disabled = false;
             }
         }
