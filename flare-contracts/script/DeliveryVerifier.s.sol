@@ -10,7 +10,8 @@ contract DeliveryVerifierScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        DeliveryVerifier verifier = new DeliveryVerifier();
+        string memory deliveryApiPrefix = vm.envString("DELIVERY_API_PREFIX");
+        DeliveryVerifier verifier = new DeliveryVerifier(deliveryApiPrefix);
 
         vm.stopBroadcast();
         console2.log("DeliveryVerifier deployed at:", address(verifier));
