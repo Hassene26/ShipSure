@@ -31,8 +31,23 @@ contract DeliveryVerifier {
     ///      The contract validates that the FDC proof came from this trusted source.
     string public deliveryApiPrefix;
 
+    /// @notice Contract owner (deployer) — used for testnet admin functions
+    address public owner;
+
     constructor(string memory _deliveryApiPrefix) {
         deliveryApiPrefix = _deliveryApiPrefix;
+        owner = msg.sender;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner");
+        _;
+    }
+
+    /// @notice Reset a delivery request so it can be verified again (TESTNET ONLY)
+    /// @dev Allows re-testing with the same tracking number. Remove in production.
+    function resetDelivery(bytes32 trackingHash) external onlyOwner {
+        delete deliveryRequests[trackingHash];
     }
 
     /// @notice Request proof from the external API (FedEx)

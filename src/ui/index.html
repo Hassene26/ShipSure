@@ -255,7 +255,7 @@
 
             <div class="data-row">
                 <label>Escrow Amount</label>
-                <div class="value">50 XRP</div>
+                <div class="value">10 XRP</div>
             </div>
 
             <div class="data-row">
@@ -294,7 +294,7 @@
     </div>
 
     <script>
-        const CONTRACT_ADDRESS = "0xA8Fd0C94a2773aEc344Ab15Eb812E668bF4424f5";
+        const CONTRACT_ADDRESS = "0xA5DE23f21f27cE830953882B7F609aE50657F7D6";
         const CONTRACT_ABI = [
             "function requestDeliveryStatus(string trackingNumber, address seller) public",
             "function verifyDelivery(bytes32 trackingHash, tuple(bytes32[] merkleProof, tuple(bytes32 attestationType, bytes32 sourceId, uint64 votingRound, uint64 lowestUsedTimestamp, tuple(string url, string httpMethod, string headers, string queryParams, string body, string postProcessJq, string abiSignature) requestBody, tuple(bytes abiEncodedData) responseBody) data) _proof) external"
