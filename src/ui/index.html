@@ -1,15 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ShipSure | Cross-Chain Escrow</title>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
     <style>
         :root {
-            --primary: #5A40F5;    /* Modern purple/blue */
+            --primary: #5A40F5;
+            /* Modern purple/blue */
             --primary-hover: #4831D6;
-            --accent: #20C997;     /* XRPL-like green */
+            --accent: #20C997;
+            /* XRPL-like green */
             --bg-dark: #0B0E14;
             --bg-glass: rgba(255, 255, 255, 0.03);
             --border-glass: rgba(255, 255, 255, 0.08);
@@ -46,6 +50,7 @@
             top: -200px;
             left: -100px;
         }
+
         .ambient-glow-2 {
             position: fixed;
             width: 500px;
@@ -158,10 +163,10 @@
         .data-row .value {
             font-size: 1.2rem;
             font-weight: 500;
-            background: rgba(0,0,0,0.3);
+            background: rgba(0, 0, 0, 0.3);
             padding: 1rem;
             border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.05);
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
         button {
@@ -185,7 +190,7 @@
         }
 
         button:disabled {
-            background: rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.1);
             color: var(--text-muted);
             cursor: not-allowed;
             transform: none;
@@ -208,7 +213,7 @@
             display: none;
             width: 20px;
             height: 20px;
-            border: 3px solid rgba(255,255,255,0.3);
+            border: 3px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
             border-top-color: white;
             animation: spin 1s ease-in-out infinite;
@@ -217,7 +222,9 @@
         }
 
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         @media (max-width: 1000px) {
@@ -228,6 +235,7 @@
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
 </head>
+
 <body>
     <div class="ambient-glow"></div>
     <div class="ambient-glow-2"></div>
@@ -242,8 +250,9 @@
         <div class="panel">
             <div class="panel-icon">💳</div>
             <h2>Buyer Dashboard</h2>
-            <p class="description">Securely lock funds in an XRPL Escrow. The funds will only be released once real-world delivery is cryptographically verified.</p>
-            
+            <p class="description">Securely lock funds in an XRPL Escrow. The funds will only be released once
+                real-world delivery is cryptographically verified.</p>
+
             <div class="data-row">
                 <label>Escrow Amount</label>
                 <div class="value">50 XRP</div>
@@ -251,7 +260,8 @@
 
             <div class="data-row">
                 <label>Verification Condition</label>
-                <div class="value" style="font-size: 0.9rem; word-break: break-all; font-family: monospace;">PREIMAGE-SHA-256 (Flare Web2 Proof)</div>
+                <div class="value" style="font-size: 0.9rem; word-break: break-all; font-family: monospace;">
+                    PREIMAGE-SHA-256 (Flare Web2 Proof)</div>
             </div>
 
             <button id="btnLock" onclick="lockFunds()">
@@ -263,13 +273,13 @@
         <div class="panel">
             <div class="panel-icon">📦</div>
             <h2>Seller & Logistics</h2>
-            <p class="description">Input the tracking number. Once FedEx marks it as delivered, Flare Network automatically triggers the XRPL Escrow release.</p>
-            
+            <p class="description">Input the tracking number. Once FedEx marks it as delivered, Flare Network
+                automatically triggers the XRPL Escrow release.</p>
+
             <div class="data-row">
                 <label>FedEx Tracking Number</label>
                 <input type="text" id="trackingInput" placeholder="Enter real FedEx tracking number"
-                    style="font-size: 1.1rem; font-weight: 500; background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); color: white; font-family: 'Space Grotesk', monospace; width: 100%; outline: none;"
-                />
+                    style="font-size: 1.1rem; font-weight: 500; background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); color: white; font-family: 'Space Grotesk', monospace; width: 100%; outline: none;" />
             </div>
 
             <div class="data-row">
@@ -284,11 +294,14 @@
     </div>
 
     <script>
-        const CONTRACT_ADDRESS = "0x9518201B65b3b9a26a80Cf7605952620C9498001";
-        const ABI = [
+        const CONTRACT_ADDRESS = "0xA8Fd0C94a2773aEc344Ab15Eb812E668bF4424f5";
+        const CONTRACT_ABI = [
             "function requestDeliveryStatus(string trackingNumber, address seller) public",
-            "function verifyDelivery(bytes32 trackingHash, bool isDelivered, uint256 deliveryTime, bytes proof) external"
+            "function verifyDelivery(bytes32 trackingHash, tuple(bytes32[] merkleProof, tuple(bytes32 attestationType, bytes32 sourceId, uint64 votingRound, uint64 lowestUsedTimestamp, tuple(string url, string httpMethod, string headers, string queryParams, string body, string postProcessJq, string abiSignature) requestBody, tuple(bytes abiEncodedData) responseBody) data) _proof) external"
         ];
+
+        const FIRST_VOTING_ROUND_START_TS = 1658430000;
+        const VOTING_EPOCH_DURATION_S = 90;
 
         // Fetch status continuously
         const statusChecker = setInterval(async () => {
@@ -342,24 +355,47 @@
             await fetch('/api/lock', { method: 'POST' });
         }
 
+        async function ensureCoston2() {
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: '0x72' }],
+                });
+            } catch (switchError) {
+                if (switchError.code === 4902) {
+                    await window.ethereum.request({
+                        method: 'wallet_addEthereumChain',
+                        params: [{
+                            chainId: '0x72',
+                            chainName: 'Coston2 Testnet',
+                            nativeCurrency: { name: 'Coston2 Flare', symbol: 'C2FLR', decimals: 18 },
+                            rpcUrls: ['https://coston2-api.flare.network/ext/bc/C/rpc'],
+                            blockExplorerUrls: ['https://coston2-explorer.flare.network/']
+                        }],
+                    });
+                } else {
+                    throw switchError;
+                }
+            }
+        }
+
         async function verifyDelivery() {
             const trackingNumber = document.getElementById('trackingInput').value.trim();
             if (!trackingNumber) {
                 alert("Please enter a FedEx tracking number.");
                 return;
             }
-
             if (!window.ethereum) {
-                alert("MetaMask is required to sign the Flare transaction.");
+                alert("MetaMask is required to sign Flare transactions.");
                 return;
             }
 
             const btn = document.getElementById('btnDeliver');
-            btn.innerHTML = 'Checking FedEx... <div class="loader" id="loaderDeliver" style="display:inline-block"></div>';
+            btn.innerHTML = 'Step 1/6: Checking FedEx... <div class="loader" style="display:inline-block"></div>';
             btn.disabled = true;
 
             try {
-                // Step 1: Ask backend to check FedEx API
+                // ── Step 1: Check FedEx API ──
                 const fedexRes = await fetch('/api/check-delivery', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -368,53 +404,71 @@
                 const fedexData = await fedexRes.json();
 
                 if (!fedexData.success) {
-                    alert("FedEx API error: " + (fedexData.error || "Unknown error"));
-                    btn.innerText = "Verify Delivery via FedEx";
-                    btn.disabled = false;
-                    return;
+                    throw new Error("FedEx API error: " + (fedexData.error || "Unknown"));
                 }
-
                 if (!fedexData.isDelivered) {
-                    alert("Package not delivered yet.\nFedEx status: " + fedexData.statusDetail + "\n\nTry again when the package is delivered.");
+                    alert("Package not delivered yet.\nFedEx status: " + fedexData.statusDetail);
                     btn.innerText = "Verify Delivery via FedEx";
                     btn.disabled = false;
                     return;
                 }
 
-                // Step 2: FedEx confirms delivery — now sign on Flare via MetaMask
-                btn.innerHTML = 'FedEx confirmed! Connecting MetaMask... <div class="loader" style="display:inline-block"></div>';
+                // ── Step 2: Prepare FDC attestation request ──
+                btn.innerHTML = 'Step 2/6: Preparing FDC attestation... <div class="loader" style="display:inline-block"></div>';
 
-                // Switch to Flare Coston2
-                try {
-                    await window.ethereum.request({
-                        method: 'wallet_switchEthereumChain',
-                        params: [{ chainId: '0x72' }],
-                    });
-                } catch (switchError) {
-                    if (switchError.code === 4902) {
-                        await window.ethereum.request({
-                            method: 'wallet_addEthereumChain',
-                            params: [{
-                                chainId: '0x72',
-                                chainName: 'Coston2 Testnet',
-                                nativeCurrency: { name: 'Coston2 Flare', symbol: 'C2FLR', decimals: 18 },
-                                rpcUrls: ['https://coston2-api.flare.network/ext/bc/C/rpc'],
-                                blockExplorerUrls: ['https://coston2-explorer.flare.network/']
-                            }],
-                        });
-                    } else {
-                        throw switchError;
-                    }
+                const trackingHash = fedexData.trackingHash;
+                const prepRes = await fetch('/api/prepare-attestation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ trackingHash }),
+                });
+                const prepData = await prepRes.json();
+
+                if (!prepData.success) {
+                    throw new Error("FDC prepare error: " + (prepData.error || "Unknown"));
                 }
 
+                // ── Step 3: Submit attestation to FdcHub via MetaMask ──
+                btn.innerHTML = 'Step 3/6: Sign FdcHub tx (MetaMask)... <div class="loader" style="display:inline-block"></div>';
+
+                await ensureCoston2();
                 const provider = new ethers.BrowserProvider(window.ethereum);
                 await provider.send("eth_requestAccounts", []);
                 const signer = await provider.getSigner();
-                const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-                const trackingHash = ethers.keccak256(ethers.toUtf8Bytes(trackingNumber));
 
-                // Step 3: Request delivery status on-chain
-                btn.innerHTML = 'Sign tx 1/2: Request... <div class="loader" style="display:inline-block"></div>';
+                const attestTx = await signer.sendTransaction({
+                    to: prepData.txData.to,
+                    data: prepData.txData.data,
+                    value: prepData.fee,
+                });
+                const attestReceipt = await attestTx.wait();
+                const block = await provider.getBlock(attestReceipt.blockNumber);
+                const votingRoundId = Math.floor((block.timestamp - FIRST_VOTING_ROUND_START_TS) / VOTING_EPOCH_DURATION_S);
+
+                console.log("Attestation submitted. Voting round:", votingRoundId);
+
+                // ── Step 4: Wait for finalization + retrieve proof ──
+                btn.innerHTML = 'Step 4/6: Waiting for FDC finalization (~90-180s)... <div class="loader" style="display:inline-block"></div>';
+
+                const proofRes = await fetch('/api/retrieve-proof', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        votingRoundId,
+                        abiEncodedRequest: prepData.abiEncodedRequest,
+                    }),
+                });
+                const proofData = await proofRes.json();
+
+                if (!proofData.success) {
+                    throw new Error("FDC proof error: " + (proofData.error || "Unknown"));
+                }
+
+                // ── Step 5: Sign on-chain transactions via MetaMask ──
+                btn.innerHTML = 'Step 5/6: Sign requestDeliveryStatus (MetaMask)... <div class="loader" style="display:inline-block"></div>';
+
+                const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
                 try {
                     const tx1 = await contract.requestDeliveryStatus(trackingNumber, await signer.getAddress());
                     await tx1.wait();
@@ -422,31 +476,39 @@
                     console.log("Delivery likely already requested, proceeding...");
                 }
 
-                // Step 4: Verify delivery on-chain with real FedEx data
-                btn.innerHTML = 'Sign tx 2/2: Verify... <div class="loader" style="display:inline-block"></div>';
-                const deliveryTime = fedexData.deliveryTime || Math.floor(Date.now() / 1000);
-                const tx2 = await contract.verifyDelivery(trackingHash, true, deliveryTime, "0x");
+                btn.innerHTML = 'Step 6/6: Sign verifyDelivery with FDC proof (MetaMask)... <div class="loader" style="display:inline-block"></div>';
+                console.log("Proof data:", JSON.stringify(proofData.proof, null, 2));
+
+                // Dry-run first to get a readable revert reason if it fails
+                try {
+                    await contract.verifyDelivery.staticCall(trackingHash, proofData.proof);
+                } catch (simErr) {
+                    console.error("Simulation failed:", simErr);
+                    throw new Error("Contract would revert: " + (simErr.reason || simErr.shortMessage || simErr.message));
+                }
+
+                const tx2 = await contract.verifyDelivery(trackingHash, proofData.proof);
                 const receipt = await tx2.wait();
 
-                // Step 5: Notify backend that on-chain verification is done
+                // ── Done: Notify backend ──
                 await fetch('/api/delivery-confirmed', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ txHash: receipt.hash }),
                 });
 
-                btn.innerText = "Verified on Flare! Releasing escrow...";
+                btn.innerText = "FDC Verified! Releasing escrow...";
                 btn.style.background = "var(--accent)";
                 btn.style.color = "var(--bg-dark)";
-                // Watcher will catch the DeliveryConfirmed event and release the XRPL escrow
 
             } catch (error) {
                 console.error(error);
-                alert("Transaction failed or rejected. Ensure you have C2FLR testnet gas!");
+                alert(error.message || "Transaction failed. Ensure you have C2FLR testnet gas!");
                 btn.innerText = "Verify Delivery via FedEx";
                 btn.disabled = false;
             }
         }
     </script>
 </body>
+
 </html>
