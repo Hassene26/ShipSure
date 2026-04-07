@@ -7,7 +7,13 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 const PORT = 3000;
+const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 let escrowStatus = "Awaiting Setup";
+
+// ── Confirmed Deliveries (public attestable data) ────────────────────
+// After FedEx confirms delivery, we store the result here.
+// FDC providers fetch /api/public/delivery-status/<trackingHash> to attest it.
+const confirmedDeliveries: Map<string, { statusCode: string; trackingNumber: string; confirmedAt: number }> = new Map();
 
 // ── Logging ──────────────────────────────────────────────────────────
 const logs: { timestamp: string; source: string; message: string }[] = [];
@@ -118,8 +124,22 @@ const server = http.createServer((req, res) => {
                 log("ESCROW-CREATE", "Escrow created successfully — funds locked on XRPL");
             }
         });
+    } else if (req.url?.startsWith('/api/public/delivery-status/') && req.method === 'GET') {
+        // ── Public endpoint for FDC providers to fetch ──
+        // Returns delivery status that FDC attestation providers will attest on-chain.
+        const trackingHash = req.url.split('/api/public/delivery-status/')[1];
+        const delivery = confirmedDeliveries.get(trackingHash);
+
+        if (!delivery) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: "Delivery not found or not yet confirmed" }));
+            return;
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ statusCode: delivery.statusCode }));
     } else if (req.url === '/api/check-delivery' && req.method === 'POST') {
-        // FedEx-only check — no Flare interaction. Frontend handles contract signing via MetaMask.
+        // FedEx check + store confirmed delivery for FDC attestation
         let body = '';
         req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
         req.on('end', async () => {
@@ -145,8 +165,19 @@ const server = http.createServer((req, res) => {
                 log("FEDEX", `Status: ${result.rawStatus} — ${result.statusDetail}`);
                 log("FEDEX", `Delivered: ${result.isDelivered}`);
 
+                // Compute tracking hash (same as contract uses)
+                const trackingHash = ethers.keccak256(ethers.toUtf8Bytes(trackingNumber));
+
                 if (result.isDelivered) {
-                    escrowStatus = "FedEx confirmed delivery. Awaiting on-chain verification...";
+                    // Store for FDC providers to attest
+                    confirmedDeliveries.set(trackingHash, {
+                        statusCode: result.rawStatus,
+                        trackingNumber,
+                        confirmedAt: Math.floor(Date.now() / 1000)
+                    });
+                    log("FEDEX", `Delivery stored for FDC attestation: ${trackingHash}`);
+                    log("FEDEX", `Public URL: ${PUBLIC_URL}/api/public/delivery-status/${trackingHash}`);
+                    escrowStatus = "FedEx confirmed delivery. Ready for FDC attestation...";
                 } else {
                     escrowStatus = "Package not delivered yet. Try again later.";
                 }
@@ -159,10 +190,106 @@ const server = http.createServer((req, res) => {
                     statusDetail: result.statusDetail,
                     deliveryTime: result.deliveryTime,
                     estimatedDelivery: result.estimatedDelivery,
+                    trackingHash,
                 }));
             } catch (e: any) {
                 log("FEDEX", `Error: ${e.message}`);
                 escrowStatus = "Error checking FedEx status";
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: e.message }));
+            }
+        });
+    } else if (req.url === '/api/prepare-attestation' && req.method === 'POST') {
+        // Step 1 of FDC flow: prepare the attestation request and return data for MetaMask signing
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+            let trackingHash = '';
+            try {
+                const parsed = JSON.parse(body);
+                trackingHash = parsed.trackingHash || '';
+            } catch { }
+
+            if (!trackingHash) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: "trackingHash is required" }));
+                return;
+            }
+
+            // Verify the delivery was actually confirmed by FedEx
+            if (!confirmedDeliveries.has(trackingHash)) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: "Delivery not confirmed by FedEx yet" }));
+                return;
+            }
+
+            log("FDC", `Preparing attestation request for hash: ${trackingHash}`);
+            escrowStatus = "Preparing FDC attestation request...";
+
+            try {
+                const { prepareAttestationRequest, getAttestationFee, getSubmitAttestationTxData } = await import('../integration/fdcAttestation');
+                const FLARE_RPC = process.env.FLARE_RPC || "https://coston2-api.flare.network/ext/bc/C/rpc";
+                const provider = new ethers.JsonRpcProvider(FLARE_RPC);
+
+                const prepared = await prepareAttestationRequest(trackingHash);
+                log("FDC", `Attestation request prepared: ${prepared.status}`);
+
+                const fee = await getAttestationFee(provider, prepared.abiEncodedRequest);
+                log("FDC", `Attestation fee: ${ethers.formatEther(fee)} C2FLR`);
+
+                const txData = getSubmitAttestationTxData(prepared.abiEncodedRequest);
+
+                escrowStatus = "FDC request ready. Sign with MetaMask...";
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    success: true,
+                    abiEncodedRequest: prepared.abiEncodedRequest,
+                    fee: fee.toString(),
+                    txData,
+                }));
+            } catch (e: any) {
+                log("FDC", `Error: ${e.message}`);
+                escrowStatus = "Error preparing attestation";
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: e.message }));
+            }
+        });
+    } else if (req.url === '/api/retrieve-proof' && req.method === 'POST') {
+        // Step 2 of FDC flow: wait for finalization and retrieve proof
+        let body = '';
+        req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        req.on('end', async () => {
+            let votingRoundId = 0;
+            let abiEncodedRequest = '';
+            try {
+                const parsed = JSON.parse(body);
+                votingRoundId = parsed.votingRoundId || 0;
+                abiEncodedRequest = parsed.abiEncodedRequest || '';
+            } catch { }
+
+            if (!votingRoundId || !abiEncodedRequest) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: "votingRoundId and abiEncodedRequest are required" }));
+                return;
+            }
+
+            log("FDC", `Waiting for voting round ${votingRoundId} finalization...`);
+            log("FDC", `abiEncodedRequest (first 80 chars): ${abiEncodedRequest.slice(0, 80)}...`);
+            log("FDC", `abiEncodedRequest length: ${abiEncodedRequest.length}`);
+            escrowStatus = `Waiting for FDC round ${votingRoundId} finalization (~90-180s)...`;
+
+            try {
+                const { waitAndRetrieveProof } = await import('../integration/fdcAttestation');
+
+                const proof = await waitAndRetrieveProof(votingRoundId, abiEncodedRequest);
+                log("FDC", `Round ${votingRoundId} finalized! Proof retrieved.`);
+
+                escrowStatus = "FDC proof ready. Verify on-chain via MetaMask...";
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, proof }));
+            } catch (e: any) {
+                log("FDC", `Error: ${e.message}`);
+                escrowStatus = "Error retrieving FDC proof";
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ success: false, error: e.message }));
             }
